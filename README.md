@@ -37,7 +37,12 @@ Sous Linux ou macOS, avec PowerShell 7 : `pwsh ./run.ps1`. Si `.venv` existe, `r
 2. `dbt build` crée les modèles `staging` et `marts` et lance les 53 tests. Un test en échec bloque les modèles qui en dépendent.
 3. `python export.py` écrit `exports/prix_actuels.json` et `exports/metadata.json`.
 
-Le projet s'arrête à la préparation des données : la page du portfolio, dans un autre dépôt, lira ces fichiers JSON, à copier dans son dossier `public/data/carburant/`, et calculera les distances dans le navigateur.
+Le projet s'arrête à la préparation des données. Chaque matin, GitHub Pages publie les deux fichiers JSON :
+
+- `https://majin-m.github.io/Carburant/prix_actuels.json`
+- `https://majin-m.github.io/Carburant/metadata.json`
+
+La page du portfolio, dans un autre dépôt, les lit directement dans le navigateur à chaque visite et calcule elle-même les distances : les prix affichés sont ceux du jour, sans reconstruire le portfolio.
 
 ### Ingestion
 
@@ -66,13 +71,16 @@ Le workflow [pipeline.yml](.github/workflows/pipeline.yml) lance le pipeline :
 
 | Déclencheur | Ce qui tourne |
 |---|---|
-| Chaque matin à 5 h UTC (6 h ou 7 h à Paris) | `run.ps1`, puis `publier_archive.py` |
-| Push ou pull request sur `main` | `run.ps1`, puis `verifier_tests_en_echec.py` |
-| À la demande (onglet Actions) | `run.ps1`, `verifier_tests_en_echec.py`, puis `publier_archive.py`, avec l'option de publier hors dimanche |
+| Chaque matin à 5 h UTC (6 h ou 7 h à Paris) | `run.ps1`, publication sur GitHub Pages, `publier_archive.py` |
+| Push sur `main` | `run.ps1`, `verifier_tests_en_echec.py`, publication sur GitHub Pages |
+| Pull request sur `main` | `run.ps1`, `verifier_tests_en_echec.py`, sans rien publier |
+| À la demande (onglet Actions) | comme un push, puis `publier_archive.py`, avec l'option de publier hors dimanche |
 
 - **Sans état** : le runner repart de zéro à chaque fois. `ingest.py` retélécharge et reconstruit les années dont les Parquet manquent : 2025 prend environ 1 min 30 de plus, pour un pipeline sans cache ni stockage à entretenir.
 - **Archive des ZIP** : `publier_archive.py` publie dans une release par année (`archive-2026`, `archive-2025`…) le ZIP du dimanche de l'année en cours, et toute version au contenu nouveau d'une année passée. Chaque fichier publié porte le début de son empreinte sha256 : le même contenu n'est jamais publié deux fois. Environ 1,5 Go par an.
-- **Résultats** : les fichiers JSON (artefact `exports`) et les journaux (artefact `journaux`, gardé même en cas d'échec) sont téléchargeables 30 jours dans l'onglet Actions.
+- **GitHub Pages** : les fichiers JSON ne sont publiés que si le pipeline et les tests ont réussi : une page ne montre jamais des données qui ont échoué aux tests. La publication a lieu avant celle de l'archive, pour qu'un incident sur les ZIP ne bloque pas les prix du jour ; le workflow reste alors en échec, pour que l'incident se voie.
+- **Résultats** : les fichiers JSON (artefact `exports`) et les journaux (artefact `journaux`, gardé même en cas d'échec) sont aussi téléchargeables 30 jours dans l'onglet Actions.
+- **Activation** : une seule fois, dans les réglages du dépôt sur GitHub, *Settings → Pages → Build and deployment → Source : GitHub Actions*.
 - **En cas d'échec** : pour une tâche programmée, GitHub envoie un courriel à la personne qui a modifié la programmation en dernier, et les journaux de l'artefact montrent l'étape `[ÉCHEC]` avec sa trace.
 
 ### Suivre une exécution
@@ -138,7 +146,10 @@ marts      changements de prix (valeur différente du relevé précédent),
            stations avec prix, prix actuels avec leur âge, prix suspects marqués
      │  export.py
      ▼
-exports/prix_actuels.json, metadata.json ──► portfolio : géolocalisation et distances dans le navigateur
+exports/prix_actuels.json, metadata.json
+     │  GitHub Actions, chaque matin
+     ▼
+GitHub Pages ──► portfolio : lecture dans le navigateur, géolocalisation et distances
 ```
 
 | Couche | Rôle | Objets |
@@ -205,6 +216,7 @@ exports/prix_actuels.json, metadata.json ──► portfolio : géolocalisation 
 | **Export compact : tableaux plutôt qu'objets** | Avec un objet par station et par prix, les noms de clés répétés 37 000 fois faisaient 5,1 Mo. En tableaux, avec l'ordre des colonnes donné une seule fois (`colonnes_station`, `colonnes_prix`), le fichier pèse 2,2 Mo, et 0,5 Mo compressé par le serveur web. |
 | **Instants exportés en UTC** | `maj` et `reference_at` sont écrits en UTC (`2026-09-24T22:42Z`) : le navigateur les affiche dans le fuseau de la personne, sans ambiguïté au changement d'heure. |
 | **Le projet s'arrête aux fichiers JSON** | Comme pour le projet des prénoms, la page est codée dans le portfolio, avec la même identité visuelle partout. `metadata.json` lui transmet les règles de lecture (prix grisés au-delà de 7 jours, prix suspects, casse des villes). |
+| **JSON servis par GitHub Pages, pas par une release ni copiés dans le portfolio** | Les prix changent chaque jour. Copier les fichiers dans le portfolio, comme pour les prénoms, obligerait à le reconstruire chaque matin. Une release garde bien un fichier, mais GitHub y bloque la lecture depuis un autre site (règle CORS) : le navigateur ne pourrait pas la charger. GitHub Pages autorise cette lecture, sert le fichier compressé (0,5 Mo au lieu de 2,2 Mo) et le met à jour à chaque exécution. Les releases restent pour l'archive des ZIP, qui dépasse la limite de 1 Go d'un site Pages. |
 | **Recherche « autour de moi » dans le navigateur** | La position de la personne n'est ni envoyée ni stockée. Repli par saisie d'une ville ou d'un code postal. |
 | **Profondeur de l'historique : depuis 2025 (`PREMIERE_ANNEE`)** | Environ 5,3 millions de relevés par année complète. Les fichiers de 2007 à 2024 pèsent 374 Mo de ZIP, soit environ 60 millions de relevés de plus. `ingest.py` prend n'importe quelle année, mais les prix sont en millièmes d'euro dans les anciens fichiers (`1141` pour 1,141 €, vérifié sur 2015 et 2021) : remonter avant 2022 demandera une conversion dans le staging, que le test `assert_prix_entre_0_30_et_4_euros` rappellera. 2022 à 2024 sont déjà au format décimal. |
 
@@ -363,7 +375,8 @@ carburant/
 - [x] Tests singuliers vus en échec sur des défauts injectés, par un script rejouable
 - [x] Export JSON (prix actuels, métadonnées du pipeline) et pipeline en une commande (`run.ps1`)
 - [x] Planification quotidienne (GitHub Actions) et archive des ZIP (releases), écrites et testées en local
-- [ ] Publication du dépôt sur GitHub et première exécution du workflow
+- [x] Publication des fichiers JSON sur GitHub Pages, ajoutée au workflow
+- [ ] Première exécution du workflow sur GitHub (après activation de Pages)
 - [ ] Page du portfolio, dans un autre dépôt : recherche géolocalisée à partir de `prix_actuels.json`
 
 ## Licence

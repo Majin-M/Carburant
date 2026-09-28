@@ -226,7 +226,7 @@ Dernier prix connu de chaque station pour chaque carburant, avec son âge.
 
 ## Fichiers exportés
 
-Écrits par `export.py` dans `exports/`, pour le portfolio. Les deux fichiers sont entièrement réécrits à chaque exécution, de façon atomique.
+Écrits par `export.py` dans `exports/`, pour le portfolio. Les deux fichiers sont entièrement réécrits à chaque exécution, de façon atomique. Chaque matin, GitHub Actions les publie sur GitHub Pages, où le portfolio les lit : `https://majin-m.github.io/Carburant/prix_actuels.json` et `https://majin-m.github.io/Carburant/metadata.json`.
 
 ### `prix_actuels.json`
 

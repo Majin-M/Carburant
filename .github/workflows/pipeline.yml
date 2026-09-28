@@ -1,16 +1,19 @@
 # Pipeline des prix des carburants sur GitHub Actions.
 #
-#   - chaque matin (tâche programmée) : ingestion, dbt build, export, puis
-#     publication de l'archive des ZIP selon la règle de publier_archive.py ;
-#   - à chaque push et pull request sur main : le même pipeline, plus la
-#     vérification que chaque test singulier détecte son défaut ;
-#   - à la demande (onglet Actions) : le pipeline, avec la possibilité de
+#   - chaque matin (tâche programmée) : ingestion, dbt build, export, publication
+#     des fichiers JSON sur GitHub Pages, puis de l'archive des ZIP selon la règle
+#     de publier_archive.py ;
+#   - à chaque push sur main : le même pipeline, plus la vérification que chaque
+#     test singulier détecte son défaut ;
+#   - à chaque pull request sur main : le pipeline et la vérification, sans rien
+#     publier ;
+#   - à la demande (onglet Actions) : comme un push, avec la possibilité de
 #     publier l'archive hors dimanche.
 #
 # Le runner repart de zéro à chaque exécution : ingest.py reconstruit les années
 # dont les Parquet manquent (voir PREMIERE_ANNEE), et seuls les ZIP à garder sont
-# publiés dans les releases archive-AAAA. Les fichiers JSON et les journaux sont
-# téléchargeables dans l'onglet Actions (artefacts exports et journaux).
+# publiés dans les releases archive-AAAA. Les fichiers JSON sont servis par GitHub
+# Pages (https://majin-m.github.io/Carburant/), où la page du portfolio les lit.
 
 name: Pipeline
 
@@ -29,11 +32,11 @@ on:
         type: boolean
         default: false
 
-# Écriture sur le dépôt : nécessaire pour créer les releases archive-AAAA.
+# Par défaut, lecture seule ; chaque job demande seulement les droits dont il a besoin.
 permissions:
-  contents: write
+  contents: read
 
-# Deux exécutions ne doivent jamais écrire en même temps dans les releases.
+# Deux exécutions ne doivent jamais écrire en même temps dans les releases ni sur Pages.
 concurrency:
   group: pipeline
   cancel-in-progress: false
@@ -42,6 +45,10 @@ jobs:
   pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write          # créer les releases archive-AAAA
+    outputs:
+      pages_prete: ${{ steps.pages.outcome == 'success' }}
 
     steps:
       - name: Récupération du dépôt
@@ -64,13 +71,23 @@ jobs:
         if: github.event_name != 'schedule'
         run: python verifier_tests_en_echec.py
 
+      # Préparé seulement si le pipeline et les tests ont réussi : une page n'est
+      # jamais publiée avec des données qui n'ont pas passé les tests. Placé avant
+      # l'archive : un incident de publication des ZIP ne bloque pas les prix du jour.
+      - name: Préparation des fichiers pour GitHub Pages
+        id: pages
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: exports/
+
       - name: Publication de l'archive des ZIP
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: python publier_archive.py ${{ inputs.publier_archive && '--forcer' || '' }}
 
-      - name: Fichiers JSON pour le portfolio
+      - name: Fichiers JSON, téléchargeables dans l'onglet Actions
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -88,3 +105,22 @@ jobs:
             dbt/logs/
             dbt/target/run_results.json
           retention-days: 30
+
+  publication-pages:
+    needs: pipeline
+    # Publie dès que les fichiers ont été préparés, même si une étape suivante
+    # (publication de l'archive) a échoué : le workflow reste alors en échec.
+    if: ${{ !cancelled() && needs.pipeline.outputs.pages_prete == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write             # publier sur GitHub Pages
+      id-token: write          # prouver à Pages que la publication vient de ce workflow
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+
+    steps:
+      - name: Publication sur GitHub Pages
+        id: deploiement
+        uses: actions/deploy-pages@v4
