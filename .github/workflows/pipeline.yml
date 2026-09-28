@@ -1,0 +1,90 @@
+# Pipeline des prix des carburants sur GitHub Actions.
+#
+#   - chaque matin (tâche programmée) : ingestion, dbt build, export, puis
+#     publication de l'archive des ZIP selon la règle de publier_archive.py ;
+#   - à chaque push et pull request sur main : le même pipeline, plus la
+#     vérification que chaque test singulier détecte son défaut ;
+#   - à la demande (onglet Actions) : le pipeline, avec la possibilité de
+#     publier l'archive hors dimanche.
+#
+# Le runner repart de zéro à chaque exécution : ingest.py reconstruit les années
+# dont les Parquet manquent (voir PREMIERE_ANNEE), et seuls les ZIP à garder sont
+# publiés dans les releases archive-AAAA. Les fichiers JSON et les journaux sont
+# téléchargeables dans l'onglet Actions (artefacts exports et journaux).
+
+name: Pipeline
+
+on:
+  schedule:
+    # 5 h UTC, soit 6 h ou 7 h à Paris : le fichier contient alors toute la veille.
+    - cron: "0 5 * * *"
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publier_archive:
+        description: "Publier les ZIP du jour même si ce n'est pas dimanche"
+        type: boolean
+        default: false
+
+# Écriture sur le dépôt : nécessaire pour créer les releases archive-AAAA.
+permissions:
+  contents: write
+
+# Deux exécutions ne doivent jamais écrire en même temps dans les releases.
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Récupération du dépôt
+        uses: actions/checkout@v4
+
+      - name: Installation de Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Installation des dépendances (versions figées)
+        run: pip install -r requirements.txt
+
+      - name: Pipeline complet (ingestion, dbt build, export)
+        shell: pwsh
+        run: ./run.ps1
+
+      - name: Vérification des tests singuliers sur défauts injectés
+        if: github.event_name != 'schedule'
+        run: python verifier_tests_en_echec.py
+
+      - name: Publication de l'archive des ZIP
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python publier_archive.py ${{ inputs.publier_archive && '--forcer' || '' }}
+
+      - name: Fichiers JSON pour le portfolio
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exports
+          path: exports/
+          retention-days: 30
+
+      - name: Journaux, gardés même en cas d'échec
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journaux
+          path: |
+            logs/
+            dbt/logs/
+            dbt/target/run_results.json
+          retention-days: 30

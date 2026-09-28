@@ -1,0 +1,111 @@
+version: 2
+
+models:
+  - name: mart_changements_prix
+    description: >
+      Historique des changements de prix : un relevé par station et carburant,
+      gardé seulement si son prix diffère du relevé précédent. Le premier relevé
+      de chaque couple est gardé (est_premier_releve).
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('mart_stations')
+                field: station_id
+      - name: carburant_id
+        data_tests:
+          - not_null
+      - name: maj_at
+        description: Instant du changement.
+        data_tests:
+          - not_null
+      - name: prix_litre
+        description: Nouveau prix, en euros par litre.
+        data_tests:
+          - not_null
+      - name: prix_precedent
+        description: Prix d'avant le changement ; NULL pour le premier relevé du couple.
+      - name: variation
+        description: prix_litre - prix_precedent, en euros ; NULL pour le premier relevé.
+      - name: est_premier_releve
+        description: Vrai pour le premier relevé connu du couple, qui n'est pas forcément un vrai changement.
+        data_tests:
+          - not_null
+      - name: est_prix_suspect
+        description: Vrai pour un prix d'E85 ou de GPLc au niveau de l'essence (voir les variables prix_max_plausible_*).
+        data_tests:
+          - not_null
+      - name: changement_precedent_at
+        description: Instant du changement précédent du même couple ; NULL pour le premier relevé.
+
+  - name: mart_stations
+    description: >
+      Stations ayant publié au moins un prix, une ligne par station, dans leur
+      version la plus récente parmi les années où elles ont des prix.
+    columns:
+      - name: station_id
+        data_tests:
+          - unique
+          - not_null
+      - name: adresse
+        data_tests:
+          - not_null
+      - name: ville
+        data_tests:
+          - not_null
+      - name: latitude
+        description: En degrés.
+        data_tests:
+          - not_null
+      - name: longitude
+        description: En degrés.
+        data_tests:
+          - not_null
+      - name: est_autoroute
+        data_tests:
+          - not_null
+      - name: premier_releve_at
+        description: Premier relevé de prix connu, tous carburants confondus.
+      - name: dernier_releve_at
+        description: Dernier relevé de prix connu, tous carburants confondus.
+      - name: nombre_carburants
+        description: Nombre de carburants ayant eu au moins un prix.
+      - name: nombre_releves
+        description: Nombre de relevés de prix, répétitions comprises.
+      - name: annee_version
+        description: Année du fichier d'où viennent l'adresse et les coordonnées.
+
+  - name: mart_prix_actuels
+    description: >
+      Dernier prix connu de chaque station pour chaque carburant, avec son âge
+      en jours par rapport au dernier relevé des données.
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('mart_stations')
+                field: station_id
+      - name: carburant_id
+        data_tests:
+          - not_null
+      - name: prix_litre
+        data_tests:
+          - not_null
+      - name: maj_at
+        description: Instant du dernier relevé de ce prix.
+        data_tests:
+          - not_null
+      - name: est_prix_suspect
+        description: Vrai pour un prix d'E85 ou de GPLc au niveau de l'essence ; à ne pas afficher comme le moins cher.
+        data_tests:
+          - not_null
+      - name: nombre_jours_depuis_maj
+        description: Jours calendaires, à l'heure de Paris, entre maj_at et reference_at.
+        data_tests:
+          - not_null
+      - name: reference_at
+        description: Dernier relevé de toutes les données, référence du calcul de l'âge.

@@ -1,0 +1,26 @@
+name: carburant
+version: "1.0.0"
+profile: carburant
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+vars:
+  # Au-delà de ces seuils, un prix d'E85 ou de GPLc est au niveau de l'essence :
+  # erreur de saisie probable (constat d'exploration). L'E85 présente un creux net
+  # à 1,50 € entre ses deux groupes de prix ; le GPLc monte à 1,481 € sur autoroute.
+  prix_max_plausible_e85: 1.50
+  prix_max_plausible_gplc: 1.80
+
+models:
+  carburant:
+    # Le staging ne fait que typer et nettoyer : une vue suffit et ne stocke rien.
+    staging:
+      +schema: staging
+      +materialized: view
+    # Les marts reposent sur des fonctions de fenêtre sur 9,5 millions de relevés :
+    # ils sont matérialisés pour ne pas être recalculés à chaque lecture.
+    marts:
+      +schema: marts
+      +materialized: table

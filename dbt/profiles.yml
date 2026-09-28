@@ -1,0 +1,13 @@
+# Profil de connexion, versionné avec le projet : il ne contient aucun secret.
+# Le chemin est relatif au dossier dbt/, d'où les commandes dbt sont lancées.
+carburant:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('CARBURANT_DB', '../data/carburant.duckdb') }}"
+      threads: 4
+      settings:
+        # Même fuseau de session sur toutes les machines (un runner GitHub Actions est en UTC) :
+        # aucun calcul sur un horodatage avec fuseau ne dépend de l'endroit où dbt tourne.
+        TimeZone: Europe/Paris

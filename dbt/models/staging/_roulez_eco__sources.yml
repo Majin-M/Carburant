@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: roulez_eco
+    description: >
+      Fichiers annuels des prix des carburants (donnees.roulez-eco.fr, Licence Ouverte),
+      chargés par ingest.py. Vues DuckDB sur un Parquet par année ; toutes les colonnes
+      source sont en texte, sous leur nom d'origine.
+    schema: raw
+    tables:
+      - name: prix
+        description: Une ligne par balise <prix> du XML, avec les attributs de sa station.
+        columns:
+          - name: prix_id
+            description: Carburant ; NULL pour une balise <prix/> vide (station sans prix dans l'année).
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ["1", "2", "3", "4", "5", "6"]
+          - name: _source_year
+            data_tests:
+              - not_null
+
+      - name: stations
+        description: Une ligne par balise <pdv> du XML, avec son adresse et sa ville.
+        columns:
+          - name: pdv_id
+            data_tests:
+              - not_null
+          - name: pop
+            description: R route, A autoroute ; N pour une seule station (Martigues), valeur non documentée.
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ["R", "A", "N"]

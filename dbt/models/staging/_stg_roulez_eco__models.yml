@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: stg_roulez_eco__prix
+    description: >
+      Relevés de prix typés, un par station, carburant et instant de relevé.
+      Balises vides écartées ; maj converti de l'heure de Paris en horodatage avec fuseau.
+    columns:
+      - name: station_id
+        description: Identifiant de la station (pdv_id).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_roulez_eco__stations')
+                field: station_id
+      - name: carburant_id
+        description: 1 Gazole, 2 SP95, 3 E85, 4 GPLc, 5 E10, 6 SP98.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6]
+                quote: false
+      - name: carburant
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Gazole", "SP95", "E85", "GPLc", "E10", "SP98"]
+      - name: maj_at
+        description: Instant du relevé, avec fuseau (lu en heure de Paris).
+        data_tests:
+          - not_null
+      - name: prix_litre
+        description: Prix en euros par litre, 3 décimales.
+        data_tests:
+          - not_null
+
+  - name: stg_roulez_eco__stations
+    description: Stations typées, une ligne par station et par fichier annuel.
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+      - name: latitude
+        description: Latitude en degrés ; NULL ou aberrante seulement pour des stations sans prix.
+      - name: longitude
+        description: Longitude en degrés ; NULL ou aberrante seulement pour des stations sans prix.
+      - name: est_autoroute
+        description: Vrai si pop = 'A'.
+      - name: _source_year
+        data_tests:
+          - not_null
