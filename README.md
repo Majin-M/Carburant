@@ -129,28 +129,13 @@ Pipeline terminé en 346,6 s
 
 ## Architecture
 
-```text
-donnees.roulez-eco.fr/opendata/annee/AAAA   (ZIP contenant un XML en ISO-8859-1)
-     │  ingest.py : contrôle du Content-Type, ZIP archivé, lecture en flux (iterparse)
-     ▼
-raw        data/raw/prix/annee=AAAA/prix_AAAA.parquet          une ligne par relevé
-           data/raw/stations/annee=AAAA/stations_AAAA.parquet  une ligne par station
-           vues DuckDB raw.prix et raw.stations sur tous les Parquet
-     │  dbt
-     ▼
-staging    typage, coordonnées en degrés, maj lu en heure de Paris et stocké avec fuseau,
-           balises vides écartées, relevés en conflit départagés
-     │
-     ▼
-marts      changements de prix (valeur différente du relevé précédent),
-           stations avec prix, prix actuels avec leur âge, prix suspects marqués
-     │  export.py
-     ▼
-exports/prix_actuels.json, metadata.json
-     │  GitHub Actions, chaque matin
-     ▼
-GitHub Pages ──► portfolio : lecture dans le navigateur, géolocalisation et distances
-```
+![Architecture du pipeline : fichiers annuels de prix-carburants.gouv.fr, couches raw, staging et marts dans DuckDB avec dbt, exports JSON publiés sur GitHub Pages pour le portfolio, archive des ZIP dans les releases GitHub](docs/Architecture_carburants.png)
+
+### Flux de données
+
+![Flux de données, du ZIP annuel aux fichiers JSON : raw.prix et raw.stations, staging, trois marts, prix_actuels.json et metadata.json publiés sur GitHub Pages](docs/Flux_de_donnees_carburants.png)
+
+Les sources des deux schémas sont dans `docs/` (fichiers draw.io).
 
 | Couche | Rôle | Objets |
 |---|---|---|
@@ -345,6 +330,10 @@ carburant/
 │   ├── tests/                 # Tests singuliers, un par constat d'exploration ou règle des marts
 │   └── macros/                # generate_schema_name, est_prix_suspect
 ├── docs/
+│   ├── Architecture_carburants.drawio      # Source du schéma d'architecture
+│   ├── Architecture_carburants.png
+│   ├── Flux_de_donnees_carburants.drawio   # Source du schéma de flux
+│   ├── Flux_de_donnees_carburants.png
 │   ├── catalogue_de_donnees.md
 │   └── conventions_de_nommage.md
 ├── data/                      # Non versionné
