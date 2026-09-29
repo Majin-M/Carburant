@@ -71,11 +71,12 @@ Le workflow [pipeline.yml](.github/workflows/pipeline.yml) lance le pipeline :
 
 | Déclencheur | Ce qui tourne |
 |---|---|
-| Chaque matin à 5 h UTC (6 h ou 7 h à Paris) | `run.ps1`, publication sur GitHub Pages, `publier_archive.py` |
+| Chaque matin à 5 h UTC (6 h ou 7 h à Paris) | `run.ps1`, publication sur GitHub Pages, `publier_archive.py`, reconstruction du portfolio sur Vercel |
 | Push sur `main` | `run.ps1`, `verifier_tests_en_echec.py`, publication sur GitHub Pages |
 | Pull request sur `main` | `run.ps1`, `verifier_tests_en_echec.py`, sans rien publier |
 | À la demande (onglet Actions) | comme un push, puis `publier_archive.py`, avec l'option de publier hors dimanche |
 
+- **Portfolio à jour** : après chaque publication sur Pages (hors pull request), le job `reconstruction-portfolio` appelle le deploy hook Vercel du portfolio, rangé dans le secret `VERCEL_DEPLOY_HOOK`. Sans ce secret, le job ne fait rien.
 - **Sans état** : le runner repart de zéro à chaque fois. `ingest.py` retélécharge et reconstruit les années dont les Parquet manquent : 2025 prend environ 1 min 30 de plus, pour un pipeline sans cache ni stockage à entretenir.
 - **Archive des ZIP** : `publier_archive.py` publie dans une release par année (`archive-2026`, `archive-2025`…) le ZIP du dimanche de l'année en cours, et toute version au contenu nouveau d'une année passée. Chaque fichier publié porte le début de son empreinte sha256 : le même contenu n'est jamais publié deux fois. Environ 1,5 Go par an.
 - **GitHub Pages** : les fichiers JSON ne sont publiés que si le pipeline et les tests ont réussi : une page ne montre jamais des données qui ont échoué aux tests. La publication a lieu avant celle de l'archive, pour qu'un incident sur les ZIP ne bloque pas les prix du jour ; le workflow reste alors en échec, pour que l'incident se voie.

@@ -14,6 +14,8 @@
 # dont les Parquet manquent (voir PREMIERE_ANNEE), et seuls les ZIP à garder sont
 # publiés dans les releases archive-AAAA. Les fichiers JSON sont servis par GitHub
 # Pages (https://majin-m.github.io/Carburant/), où la page du portfolio les lit.
+# Une fois les prix publiés, le portfolio est reconstruit sur Vercel (secret
+# VERCEL_DEPLOY_HOOK) : sa date, sa carte et ses médianes suivent le pipeline.
 
 name: Pipeline
 
@@ -124,3 +126,24 @@ jobs:
       - name: Publication sur GitHub Pages
         id: deploiement
         uses: actions/deploy-pages@v4
+
+  reconstruction-portfolio:
+    needs: publication-pages
+    if: ${{ !cancelled() && needs.publication-pages.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+
+    steps:
+      # Le deploy hook de Vercel est une URL secrète : un POST lance un nouveau
+      # build du portfolio, qui télécharge les prix qui viennent d'être publiés.
+      - name: Reconstruction du portfolio sur Vercel
+        env:
+          DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "Secret VERCEL_DEPLOY_HOOK absent : portfolio non reconstruit."
+            exit 0
+          fi
+          curl --fail --silent --show-error --request POST "$DEPLOY_HOOK" > /dev/null
+          echo "Reconstruction du portfolio demandée à Vercel."
