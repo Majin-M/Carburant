@@ -7,3 +7,6 @@ dbt/target/
 dbt/logs/
 dbt/dbt_packages/
 exports/
+
+# Notes de travail locales
+CLAUDE.md
