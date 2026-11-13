@@ -17,6 +17,7 @@ Description des fichiers et des tables produits par le pipeline, de la source au
 | `marts` | `marts.mart_changements_prix` | table dbt | une station, un carburant, un changement de prix | 5 222 646 |
 | `marts` | `marts.mart_stations` | table dbt | une station ayant publié au moins un prix | 10 112 |
 | `marts` | `marts.mart_prix_actuels` | table dbt | une station, un carburant | 37 039 |
+| `marts` | `marts.mart_prix_medians_quotidiens` | table dbt | un jour, un carburant | 3 768 |
 
 ## ZIP archivés
 
@@ -225,9 +226,31 @@ Dernier prix connu de chaque station pour chaque carburant, avec son âge.
 - **66 prix suspects** (54 en E85, 12 en GPLc), soit 0,2 % : ils ne doivent pas être affichés comme les moins chers. Seuils : 1,50 € pour l'E85, 1,80 € pour le GPLc (variables `prix_max_plausible_e85` et `prix_max_plausible_gplc` de `dbt_project.yml`).
 - **Les ruptures de stock ne sont pas chargées** : un carburant en rupture garde son dernier prix.
 
+## `marts.mart_prix_medians_quotidiens`
+
+Prix médian de chaque carburant, jour par jour, sur les prix en vigueur.
+
+- **Grain** : un jour, un carburant.
+- **Source** : `stg_roulez_eco__prix`.
+- **Prix en vigueur** : le dernier relevé de chaque station à la fin du jour, en heure de Paris, s'il a au plus `jours_prix_en_vigueur` jours (variable de `dbt_project.yml`, 7 comme la règle d'affichage du portfolio). Chaque station compte une fois par jour, quel que soit son nombre de relevés. Les prix suspects sont écartés.
+- **Début** : la série commence 7 jours après le premier relevé de l'historique, une fois la fenêtre complète (8 janvier 2025).
+
+| Colonne | Type | Description | Exemple |
+|---|---|---|---|
+| `jour` | DATE | Jour, en heure de Paris | `2026-01-01` |
+| `carburant_id` | INTEGER | `1` Gazole … `6` SP98 | `1` |
+| `carburant` | VARCHAR | Nom du carburant | `Gazole` |
+| `prix_median` | DECIMAL | Prix médian au litre, en euros | `1.565` |
+| `nombre_stations` | BIGINT | Stations qui ont un prix en vigueur ce jour-là | `7048` |
+
+**À savoir**
+
+- **Jours fériés** : moins de stations relèvent leurs prix (7 048 en gazole le 1er janvier 2026, contre 7 773 le 2 janvier) ; le prix médian reste calculé sur les prix en vigueur.
+- **Une station par jour** : vérifié par `assert_prix_medians_une_station_par_jour`.
+
 ## Fichiers exportés
 
-Écrits par `export.py` dans `exports/`, pour le portfolio. Les deux fichiers sont entièrement réécrits à chaque exécution, de façon atomique. Chaque matin, GitHub Actions les publie sur GitHub Pages, où le portfolio les lit : `https://majin-m.github.io/Carburant/prix_actuels.json` et `https://majin-m.github.io/Carburant/metadata.json`.
+Écrits par `export.py` dans `exports/`, pour le portfolio. Les fichiers sont entièrement réécrits à chaque exécution, de façon atomique. Chaque matin, GitHub Actions les publie sur GitHub Pages, où le portfolio les lit : `https://majin-m.github.io/Carburant/prix_actuels.json` et `https://majin-m.github.io/Carburant/metadata.json`.
 
 ### `prix_actuels.json`
 
@@ -257,6 +280,19 @@ Les stations de `mart_stations` et leurs prix de `mart_prix_actuels`, dans un fo
 | `maj` | `mart_prix_actuels.maj_at` | Instant du dernier relevé, en UTC, à la minute |
 | `age_jours` | `mart_prix_actuels.nombre_jours_depuis_maj` | Jours calendaires, à l'heure de Paris, entre `maj` et `reference_at` |
 | `suspect` | `mart_prix_actuels.est_prix_suspect` | Prix d'E85 ou de GPLc au niveau de l'essence |
+
+### `prix_medians.json`
+
+Les prix médians de `mart_prix_medians_quotidiens`, une série par carburant, pour la courbe de l'évolution des prix du portfolio. L'export échoue si un carburant manque ou si une série saute un jour.
+
+```json
+{
+  "reference_at": "2026-11-12T22:59:00Z",
+  "jours_prix_en_vigueur": 7,
+  "colonnes": ["jour", "prix_median", "stations"],
+  "carburants": {"1": [["2025-01-08", 1.669, 8160], ["2025-01-09", 1.669, 8346], ...], ...}
+}
+```
 
 ### `metadata.json`
 

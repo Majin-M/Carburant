@@ -109,3 +109,29 @@ models:
           - not_null
       - name: reference_at
         description: Dernier relevé de toutes les données, référence du calcul de l'âge.
+
+  - name: mart_prix_medians_quotidiens
+    description: >
+      Prix médian de chaque carburant, jour par jour, sur les prix en vigueur :
+      dernier relevé de chaque station à la fin du jour (heure de Paris), vieux
+      d'au plus jours_prix_en_vigueur jours, prix suspects écartés. Une ligne par
+      jour et par carburant ; la série commence une fois la première fenêtre complète.
+    columns:
+      - name: jour
+        description: Jour, en heure de Paris.
+        data_tests:
+          - not_null
+      - name: carburant_id
+        data_tests:
+          - not_null
+      - name: carburant
+        data_tests:
+          - not_null
+      - name: prix_median
+        description: Prix médian au litre, en euros, des stations qui ont un prix en vigueur ce jour-là.
+        data_tests:
+          - not_null
+      - name: nombre_stations
+        description: Nombre de stations qui ont un prix en vigueur ce jour-là, chacune comptée une fois.
+        data_tests:
+          - not_null

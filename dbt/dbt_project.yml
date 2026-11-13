@@ -12,6 +12,9 @@ vars:
   # à 1,50 € entre ses deux groupes de prix ; le GPLc monte à 1,481 € sur autoroute.
   prix_max_plausible_e85: 1.50
   prix_max_plausible_gplc: 1.80
+  # Un prix reste en vigueur au plus 7 jours après son dernier relevé : au-delà, le
+  # portfolio le grise (JOURS_PRIX_RECENT dans export.py). Sert au mart des prix médians.
+  jours_prix_en_vigueur: 7
 
 models:
   carburant:

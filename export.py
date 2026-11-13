@@ -8,6 +8,9 @@ Objectif :
         son adresse et le dernier prix de chaque carburant. Format compact :
         chaque station et chaque prix est un tableau, dont l'ordre des valeurs
         est donné une seule fois par colonnes_station et colonnes_prix ;
+      - prix_medians.json : prix médian de chaque carburant, jour par jour, sur
+        les prix en vigueur (mart_prix_medians_quotidiens), pour la courbe de
+        l'évolution des prix ;
       - metadata.json     : date des données, fichiers source et empreintes,
         volumes, règles de lecture et résumé de la dernière exécution dbt.
 
@@ -49,6 +52,8 @@ CARBURANTS = {1: "Gazole", 2: "SP95", 3: "E85", 4: "GPLc", 5: "E10", 6: "SP98"}
 # qu'avec un objet par station et par prix.
 COLONNES_STATION = ["id", "latitude", "longitude", "adresse", "ville", "code_postal", "autoroute", "prix"]
 COLONNES_PRIX = ["carburant_id", "prix", "maj", "age_jours", "suspect"]
+# Ordre des valeurs de chaque jour dans prix_medians.json.
+COLONNES_MEDIANE = ["jour", "prix_median", "stations"]
 
 log = logging.getLogger("export")
 
@@ -160,6 +165,33 @@ def lire_resume(con) -> dict:
     }
 
 
+def lire_medianes(con) -> dict[str, list[list]]:
+    """Série quotidienne de chaque carburant : [jour, prix médian, nombre de stations]."""
+    lignes = con.execute("""
+        SELECT carburant_id, strftime(jour, '%Y-%m-%d'), round(prix_median, 4)::DOUBLE, nombre_stations
+        FROM marts.mart_prix_medians_quotidiens
+        ORDER BY carburant_id, jour
+    """).fetchall()
+    series: dict[str, list[list]] = {}
+    for carburant_id, jour, prix, nombre in lignes:
+        series.setdefault(str(carburant_id), []).append([jour, prix, nombre])
+    return series
+
+
+def verifier_medianes(series: dict[str, list[list]]) -> None:
+    """Lève ExportError si un carburant manque ou si une série a un jour manquant."""
+    manquants = {str(k) for k in CARBURANTS} - set(series)
+    if manquants:
+        raise ExportError(f"prix médians absents pour les carburants {sorted(manquants)}")
+    for carburant_id, jours in series.items():
+        dates = [datetime.fromisoformat(j[0]) for j in jours]
+        trous = [d for d, suivant in zip(dates, dates[1:]) if (suivant - d).days != 1]
+        if trous:
+            raise ExportError(f"{CARBURANTS[int(carburant_id)]} : série interrompue après {trous[0]:%Y-%m-%d}")
+    jours = next(iter(series.values()))
+    log.info("Prix médians : %d jours, du %s au %s", len(jours), jours[0][0], jours[-1][0])
+
+
 def verifier(stations: list[list], resume: dict) -> None:
     """Lève ExportError si l'export est inutilisable ; avertit si les données sont anciennes."""
     if not stations:
@@ -236,8 +268,11 @@ def main() -> int:
                 stations = lire_stations(con)
             with etape("Lecture de la date des données et des volumes"):
                 resume = lire_resume(con)
+            with etape("Lecture des prix médians quotidiens"):
+                medianes = lire_medianes(con)
         with etape("Vérification de l'export"):
             verifier(stations, resume)
+            verifier_medianes(medianes)
         with etape("Lecture du résumé de la dernière exécution dbt"):
             execution_dbt = lire_execution_dbt()
         with etape("Écriture des fichiers JSON"):
@@ -246,6 +281,12 @@ def main() -> int:
                 "colonnes_station": COLONNES_STATION,
                 "colonnes_prix": COLONNES_PRIX,
                 "stations": stations,
+            })
+            ecrire_json("prix_medians.json", {
+                "reference_at": resume["reference_at"],
+                "jours_prix_en_vigueur": JOURS_PRIX_RECENT,
+                "colonnes": COLONNES_MEDIANE,
+                "carburants": medianes,
             })
             ecrire_json("metadata.json", {
                 "genere_le": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

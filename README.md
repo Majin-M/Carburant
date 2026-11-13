@@ -4,7 +4,7 @@
 
 Chaque matin, ce pipeline récupère les prix de toutes les stations de France, publiés par l'État en XML (donnees.roulez-eco.fr, Licence Ouverte), garde l'historique complet des changements de prix et publie les prix du jour. Le portfolio s'en sert pour trouver la station la moins chère autour de soi : [voir la page du projet](https://portfolio-data-lovat.vercel.app/projets/prix-carburants/).
 
-**Stack** : Python (ingestion), Parquet et DuckDB (stockage), dbt (transformations et 54 tests), GitHub Actions (exécution quotidienne), GitHub Pages (publication).
+**Stack** : Python (ingestion), Parquet et DuckDB (stockage), dbt (transformations et 60 tests), GitHub Actions (exécution quotidienne), GitHub Pages (publication).
 
 ## Architecture
 
@@ -19,8 +19,8 @@ Chaque matin, ce pipeline récupère les prix de toutes les stations de France, 
 | archive | ZIP d'origine : le dernier de chaque semaine, sans doublon de contenu | `data/archive/PrixCarburants_annuel_AAAA_telecharge_AAAAMMJJ.zip`, releases GitHub `archive-AAAA` (`publier_archive.py`) |
 | `raw` | Copie fidèle du XML, en texte, avec l'année, le nom et l'empreinte du ZIP source | vues `raw.prix` et `raw.stations` sur un Parquet par année (`ingest.py`) |
 | `staging` | Typage et nettoyage, sans logique métier | `stg_roulez_eco__prix`, `stg_roulez_eco__stations` (vues dbt) |
-| `marts` | Changements de prix, stations, prix actuels | `mart_changements_prix`, `mart_stations`, `mart_prix_actuels` (tables dbt) |
-| export | Fichiers JSON pour le portfolio | `exports/prix_actuels.json`, `exports/metadata.json` (`export.py`) |
+| `marts` | Changements de prix, stations, prix actuels, prix médians jour par jour | `mart_changements_prix`, `mart_stations`, `mart_prix_actuels`, `mart_prix_medians_quotidiens` (tables dbt) |
+| export | Fichiers JSON pour le portfolio | `exports/prix_actuels.json`, `exports/prix_medians.json`, `exports/metadata.json` (`export.py`) |
 
 Chaque colonne est décrite dans le [catalogue de données](docs/catalogue_de_donnees.md), les règles de nommage dans les [conventions de nommage](docs/conventions_de_nommage.md). Les sources des deux schémas sont dans `docs/` (draw.io).
 
@@ -74,6 +74,7 @@ Le script met ensuite à jour les vues `raw.prix` et `raw.stations` de DuckDB, p
 | **Relevés en conflit : le prix le plus élevé est gardé** | Un seul couple par année a deux prix différents au même instant. Rien ne dit lequel est le bon ; garder le plus élevé évite d'afficher une station comme « la moins chère » sur la foi d'un prix douteux. Un test échoue si les conflits dépassent 10. |
 | **Staging en vue, marts en tables, profil dbt versionné** | Le staging ne fait que typer et nettoyer : une vue suffit. Les marts reposent sur des fonctions de fenêtre sur 9,5 millions de relevés : ils sont matérialisés pour ne pas être recalculés à chaque lecture. Le profil (`dbt/profiles.yml`) ne contient aucun secret, seulement le chemin de la base et le fuseau de session : il est versionné pour que `dbt build` marche dès le clonage. |
 | **Stations : version la plus récente parmi les années avec prix** | Une station listée sans prix peut avoir des coordonnées fausses (`0`, latitude et longitude inversées). Seules les versions accompagnées de prix sont retenues, et les stations sans aucun prix sont écartées. |
+| **Prix médians : prix en vigueur, une station par jour** | La médiane des relevés d'un jour surpondère les stations qui relèvent plusieurs fois par jour, et oublie celles qui n'ont rien relevé ce jour-là. Le mart prend pour chaque station son dernier relevé à la fin du jour, s'il a 7 jours ou moins (la règle d'affichage du portfolio), et écarte les prix suspects. Pour le gazole, la médiane des relevés du 1er au 27 septembre 2026 donnait 2,289 € ; celle des prix en vigueur, 2,390 € le 27 septembre. |
 | **Prix actuels : tous les derniers prix gardés, avec leur âge** | 29 % des derniers prix ont plus de 7 jours. Les supprimer masquerait des stations ; les garder avec `nombre_jours_depuis_maj` laisse le portfolio les griser. |
 | **Âge compté depuis le dernier relevé des données** | Et non depuis l'heure d'exécution : relancer dbt sur les mêmes données donne exactement le même résultat. |
 | **Âge compté en jours calendaires à l'heure de Paris, quel que soit le fuseau de la machine** | Trouvé à la relecture : sur un horodatage avec fuseau, `date_diff('day', …)` compte les changements de jour dans le fuseau de la session DuckDB. Sur une machine en UTC, comme un runner GitHub Actions, 5 642 prix actuels auraient changé d'âge. Le calcul convertit désormais explicitement en heure de Paris, et le profil dbt fixe en plus le fuseau de session (`TimeZone: Europe/Paris`). Le résultat a été vérifié identique dans quatre fuseaux. |
@@ -103,7 +104,7 @@ QUALIFY prix_litre IS DISTINCT FROM lag(prix_litre) OVER (
 
 ## Qualité des données
 
-54 tests dbt, lancés à chaque `dbt build` : 35 tests génériques (`not_null`, `unique`, `accepted_values`, `relationships`), 18 tests singuliers bloquants et 1 avertissement.
+60 tests dbt, lancés à chaque `dbt build` : 40 tests génériques (`not_null`, `unique`, `accepted_values`, `relationships`), 19 tests singuliers bloquants et 1 avertissement.
 
 Chaque test singulier a été vu en échec : [verifier_tests_en_echec.py](verifier_tests_en_echec.py) injecte le défaut de la dernière colonne, dans les données d'un échantillon ou dans une copie du code dbt, et vérifie que le test le détecte. Il tourne à chaque push.
 
@@ -126,6 +127,7 @@ Chaque test singulier a été vu en échec : [verifier_tests_en_echec.py](verifi
 | `assert_un_prix_actuel_par_station_et_carburant` | Grain unique du mart des prix actuels | les deux derniers prix gardés au lieu du dernier |
 | `assert_prix_actuel_egal_dernier_changement` | Le prix actuel est celui du dernier changement | le premier prix pris au lieu du dernier |
 | `assert_age_des_prix_positif` | L'âge d'un prix n'est jamais négatif | date de référence prise au premier relevé |
+| `assert_prix_medians_une_station_par_jour` | Dans le mart des prix médians, une station compte au plus une fois par jour et par carburant | période d'un prix prolongée jusqu'au jour du relevé suivant |
 | `assert_aucun_texte_double_encode` | Aucune adresse ni ville ne garde la trace d'un double encodage (`Ã` suivi d'un octet de continuation) | réparation du double encodage retirée du staging |
 | `assert_prix_suspects_rares` (avertissement) | Les prix suspects restent sous 1 % des prix actuels (0,2 % aujourd'hui) | tous les prix d'E85 passés à 1,99 € |
 
