@@ -101,6 +101,7 @@ Vue DuckDB sur les fichiers Parquet annuels des stations, écrits par `ingest.py
 - **Toutes les stations du fichier n'ont pas de prix** : en 2026, 9 774 stations sur 14 793 ont au moins un prix. 4 978 n'ont qu'une balise `<prix/>` vide, 41 aucune balise `<prix>`.
 - **Coordonnées aberrantes, seulement sur des stations sans prix** : 69 stations sans coordonnées, et d'autres à `0`, avec latitude et longitude inversées, ou à La Réunion. Les stations avec prix sont toutes en France métropolitaine (vérifié par un test).
 - **Adresses** : 244 adresses de 2026 ont des espaces en fin de texte.
+- **Adresses encodées deux fois** : 3 stations, en 2025 comme en 2026 (`29100005`, `81260003`, `92330002`). La source écrit les deux octets UTF-8 d'une lettre accentuée comme deux caractères : `4 Rue Ãtienne Kernours` (`&#xC3;&#x89;`) pour `4 Rue Étienne Kernours`.
 - **Villes** : environ la moitié en majuscules, avec parfois les accents restés en minuscules (`TOURNON-SUR-RHôNE`).
 
 ## `staging.stg_roulez_eco__prix`
@@ -127,8 +128,8 @@ Stations typées, une ligne par station et par fichier annuel : une station list
 | Colonne | Type | Source | Description | Exemple |
 |---|---|---|---|---|
 | `station_id` | INTEGER | `pdv_id` | Identifiant de la station | `1000001` |
-| `adresse` | VARCHAR | `adresse` | Sans espaces au début ni à la fin, casse d'origine | `596 AVENUE DE TREVOUX` |
-| `ville` | VARCHAR | `ville` | Sans espaces au début ni à la fin, casse d'origine | `SAINT-DENIS-LèS-BOURG` |
+| `adresse` | VARCHAR | `adresse` | Sans espaces au début ni à la fin, double encodage réparé (macro `reparer_double_encodage`), casse d'origine | `596 AVENUE DE TREVOUX` |
+| `ville` | VARCHAR | `ville` | Sans espaces au début ni à la fin, double encodage réparé, casse d'origine | `SAINT-DENIS-LèS-BOURG` |
 | `code_postal` | VARCHAR | `cp` | Code postal | `01000` |
 | `latitude` | DOUBLE | `latitude` | En degrés ; NULL si absente | `46.201` |
 | `longitude` | DOUBLE | `longitude` | En degrés ; NULL si absente | `5.198` |

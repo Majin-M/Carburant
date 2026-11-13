@@ -5,6 +5,7 @@
 -- Nettoyage :
 --   - coordonnées converties en degrés (la source les donne en degrés × 100 000) ;
 --   - adresse et ville débarrassées de leurs espaces en trop, casse d'origine gardée ;
+--   - adresse et ville encodées deux fois par la source réparées (« Ãdouard » -> « Édouard ») ;
 --   - pop réduit à est_autoroute : la valeur N (une seule station) compte comme route.
 
 with stations as (
@@ -16,8 +17,8 @@ with stations as (
 
 select
     cast(pdv_id as integer)                             as station_id,
-    trim(adresse)                                       as adresse,
-    trim(ville)                                         as ville,
+    {{ reparer_double_encodage('trim(adresse)') }}     as adresse,
+    {{ reparer_double_encodage('trim(ville)') }}       as ville,
     cp                                                  as code_postal,
     cast(nullif(latitude, '') as double) / 100000       as latitude,
     cast(nullif(longitude, '') as double) / 100000      as longitude,

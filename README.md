@@ -4,7 +4,7 @@
 
 Chaque matin, ce pipeline récupère les prix de toutes les stations de France, publiés par l'État en XML (donnees.roulez-eco.fr, Licence Ouverte), garde l'historique complet des changements de prix et publie les prix du jour. Le portfolio s'en sert pour trouver la station la moins chère autour de soi : [voir la page du projet](https://portfolio-data-lovat.vercel.app/projets/prix-carburants/).
 
-**Stack** : Python (ingestion), Parquet et DuckDB (stockage), dbt (transformations et 53 tests), GitHub Actions (exécution quotidienne), GitHub Pages (publication).
+**Stack** : Python (ingestion), Parquet et DuckDB (stockage), dbt (transformations et 54 tests), GitHub Actions (exécution quotidienne), GitHub Pages (publication).
 
 ## Architecture
 
@@ -103,7 +103,7 @@ QUALIFY prix_litre IS DISTINCT FROM lag(prix_litre) OVER (
 
 ## Qualité des données
 
-53 tests dbt, lancés à chaque `dbt build` : 35 tests génériques (`not_null`, `unique`, `accepted_values`, `relationships`), 17 tests singuliers bloquants et 1 avertissement.
+54 tests dbt, lancés à chaque `dbt build` : 35 tests génériques (`not_null`, `unique`, `accepted_values`, `relationships`), 18 tests singuliers bloquants et 1 avertissement.
 
 Chaque test singulier a été vu en échec : [verifier_tests_en_echec.py](verifier_tests_en_echec.py) injecte le défaut de la dernière colonne, dans les données d'un échantillon ou dans une copie du code dbt, et vérifie que le test le détecte. Il tourne à chaque push.
 
@@ -126,6 +126,7 @@ Chaque test singulier a été vu en échec : [verifier_tests_en_echec.py](verifi
 | `assert_un_prix_actuel_par_station_et_carburant` | Grain unique du mart des prix actuels | les deux derniers prix gardés au lieu du dernier |
 | `assert_prix_actuel_egal_dernier_changement` | Le prix actuel est celui du dernier changement | le premier prix pris au lieu du dernier |
 | `assert_age_des_prix_positif` | L'âge d'un prix n'est jamais négatif | date de référence prise au premier relevé |
+| `assert_aucun_texte_double_encode` | Aucune adresse ni ville ne garde la trace d'un double encodage (`Ã` suivi d'un octet de continuation) | réparation du double encodage retirée du staging |
 | `assert_prix_suspects_rares` (avertissement) | Les prix suspects restent sous 1 % des prix actuels (0,2 % aujourd'hui) | tous les prix d'E85 passés à 1,99 € |
 
 ## Constats d'exploration
@@ -154,6 +155,7 @@ Chaque test singulier a été vu en échec : [verifier_tests_en_echec.py](verifi
 - **Stations probablement fermées** : 338 stations ont publié des prix en 2025 mais plus en 2026. Elles restent dans les marts, avec des prix anciens ; les balises `<fermeture>` ne sont pas encore chargées.
 - **Ruptures de stock non chargées** : un carburant en rupture garde son dernier prix dans `mart_prix_actuels`.
 - **`pop` vaut `N` pour une seule station** (Martigues), valeur non documentée : elle compte comme une station de route (`est_autoroute` faux).
+- **Adresses encodées deux fois par la source** : 3 stations (`Ãdouard` pour `Édouard`, `Ã` suivi d'une espace insécable pour `à`). Le XML écrit les deux octets UTF-8 de la lettre comme deux caractères (`&#xC3;&#x89;`). Le staging refait le texte octet par octet et le relit en UTF-8, seulement si la relecture réussit ; un test vérifie qu'aucune trace ne reste.
 - **Casse des villes irrégulière** : environ la moitié des villes sont en majuscules, avec parfois les accents restés en minuscules (`TOURNON-SUR-RHôNE`). Le staging garde la casse d'origine ; l'affichage la normalise.
 - **Changement d'heure d'automne** : les relevés entre 2 h et 3 h la nuit du passage à l'heure d'hiver sont ambigus (l'heure existe deux fois). Ils sont très rares, la nuit étant presque sans activité.
 
@@ -194,7 +196,7 @@ carburant/
 │   ├── models/staging/        # Sources, stg_roulez_eco__prix, stg_roulez_eco__stations
 │   ├── models/marts/          # Changements de prix, stations, prix actuels
 │   ├── tests/                 # Tests singuliers, un par constat d'exploration ou règle des marts
-│   └── macros/                # generate_schema_name, est_prix_suspect
+│   └── macros/                # generate_schema_name, est_prix_suspect, reparer_double_encodage
 ├── docs/                      # Schémas (draw.io et PNG), catalogue de données, conventions de nommage
 ├── data/                      # Archive, Parquet et base DuckDB (non versionnés)
 ├── exports/                   # Fichiers JSON pour le portfolio (non versionnés)

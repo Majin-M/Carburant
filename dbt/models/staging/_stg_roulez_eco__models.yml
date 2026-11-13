@@ -47,6 +47,10 @@ models:
         description: Latitude en degrés ; NULL ou aberrante seulement pour des stations sans prix.
       - name: longitude
         description: Longitude en degrés ; NULL ou aberrante seulement pour des stations sans prix.
+      - name: adresse
+        description: Adresse sans espaces en trop, double encodage de la source réparé, casse d'origine.
+      - name: ville
+        description: Ville sans espaces en trop, double encodage de la source réparé, casse d'origine.
       - name: est_autoroute
         description: Vrai si pop = 'A'.
       - name: _source_year

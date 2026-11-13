@@ -44,8 +44,9 @@ DBT_EXE = Path(sys.executable).with_name("dbt.exe" if os.name == "nt" else "dbt"
 
 NB_STATIONS_ECHANTILLON = 60
 # Stations gardées dans l'échantillon pour leurs particularités (constats d'exploration) :
-# deux relevés en conflit (24650001, 38480005) et la seule station avec pop = N (13500010).
-STATIONS_IMPOSEES = ["24650001", "38480005", "13500010"]
+# deux relevés en conflit (24650001, 38480005), la seule station avec pop = N (13500010)
+# et une adresse encodée deux fois par la source (92330002).
+STATIONS_IMPOSEES = ["24650001", "38480005", "13500010", "92330002"]
 
 # Premier relevé de prix d'une année, pour cibler une seule ligne.
 UNE_LIGNE_2025 = "rowid = (SELECT min(rowid) FROM raw.prix WHERE prix_id IS NOT NULL AND _source_year = 2025)"
@@ -117,6 +118,10 @@ SCENARIOS = [
      "defaut": "un relevé de 2026 daté du 31/12/2026, après le téléchargement du fichier",
      "sql": ["""UPDATE raw.prix SET maj = '2026-12-31T12:00:00'
                 WHERE rowid = (SELECT min(rowid) FROM raw.prix WHERE prix_id IS NOT NULL AND _source_year = 2026)"""]},
+    {"test": "assert_aucun_texte_double_encode",
+     "defaut": "réparation du double encodage retirée du staging des stations",
+     "code": {"models/staging/stg_roulez_eco__stations.sql":
+              ("{{ reparer_double_encodage('trim(adresse)') }}", "trim(adresse)")}},
     {"test": "assert_prix_suspects_rares",
      "defaut": "tous les prix d'E85 passés à 1,99 € (niveau de l'essence)",
      "sql": ["UPDATE raw.prix SET valeur = '1.990' WHERE prix_id = '3'"],
