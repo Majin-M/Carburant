@@ -13,7 +13,7 @@ vars:
   prix_max_plausible_e85: 1.50
   prix_max_plausible_gplc: 1.80
   # Un prix reste en vigueur au plus 7 jours après son dernier relevé : au-delà, le
-  # portfolio le grise (JOURS_PRIX_RECENT dans export.py). Sert au mart des prix médians.
+  # portfolio le grise (JOURS_PRIX_RECENT dans export.py). Sert à int_prix_en_vigueur.
   jours_prix_en_vigueur: 7
 
 models:
@@ -24,6 +24,10 @@ models:
       +materialized: view
     # Les marts reposent sur des fonctions de fenêtre sur 9,5 millions de relevés :
     # ils sont matérialisés pour ne pas être recalculés à chaque lecture.
+    # Calculs intermédiaires partagés par plusieurs marts : une vue, rien n'est stocké.
+    intermediate:
+      +schema: intermediate
+      +materialized: view
     marts:
       +schema: marts
       +materialized: table

@@ -11,6 +11,9 @@ Objectif :
       - prix_medians.json : prix médian de chaque carburant, jour par jour, sur
         les prix en vigueur (mart_prix_medians_quotidiens), pour la courbe de
         l'évolution des prix ;
+      - surcout_autoroute.json : écart de prix entre autoroute et route, à la
+        même date et dans le même département (mart_ecarts_autoroute), résumé
+        par carburant et jour par jour ;
       - metadata.json     : date des données, fichiers source et empreintes,
         volumes, règles de lecture et résumé de la dernière exécution dbt.
 
@@ -54,6 +57,8 @@ COLONNES_STATION = ["id", "latitude", "longitude", "adresse", "ville", "code_pos
 COLONNES_PRIX = ["carburant_id", "prix", "maj", "age_jours", "suspect"]
 # Ordre des valeurs de chaque jour dans prix_medians.json.
 COLONNES_MEDIANE = ["jour", "prix_median", "stations"]
+# Ordre des valeurs de chaque jour dans surcout_autoroute.json.
+COLONNES_ECART = ["jour", "ecart_median", "departements"]
 
 log = logging.getLogger("export")
 
@@ -178,16 +183,64 @@ def lire_medianes(con) -> dict[str, list[list]]:
     return series
 
 
+def lire_ecarts_autoroute(con) -> dict:
+    """Écart autoroute - route par carburant : résumé sur toute la période, par année et jour par jour.
+
+    Chaque jour, l'écart retenu est la médiane des écarts des départements comparables.
+    """
+    resumes = con.execute("""
+        SELECT carburant_id,
+               round(median(ecart), 4)::DOUBLE,
+               round(quantile_cont(ecart, 0.25), 4)::DOUBLE,
+               round(quantile_cont(ecart, 0.75), 4)::DOUBLE,
+               round(median(ecart / prix_median_route), 4)::DOUBLE,
+               round(avg(CASE WHEN ecart > 0 THEN 1 ELSE 0 END), 4)::DOUBLE,
+               count(*),
+               count(DISTINCT departement)
+        FROM marts.mart_ecarts_autoroute
+        GROUP BY carburant_id
+        ORDER BY carburant_id
+    """).fetchall()
+    annees = con.execute("""
+        SELECT carburant_id, year(jour), round(median(ecart), 4)::DOUBLE
+        FROM marts.mart_ecarts_autoroute
+        GROUP BY ALL
+        ORDER BY 1, 2
+    """).fetchall()
+    jours = con.execute("""
+        SELECT carburant_id, strftime(jour, '%Y-%m-%d'), round(median(ecart), 4)::DOUBLE, count(*)
+        FROM marts.mart_ecarts_autoroute
+        GROUP BY carburant_id, jour
+        ORDER BY carburant_id, jour
+    """).fetchall()
+    carburants = {
+        str(c): {"ecart_median": e, "ecart_q1": q1, "ecart_q3": q3, "ecart_median_part": part,
+                 "part_cas_autoroute_plus_chere": plus_chere, "cas": cas, "departements": deps, "par_annee": {}}
+        for c, e, q1, q3, part, plus_chere, cas, deps in resumes
+    }
+    for c, annee, e in annees:
+        carburants[str(c)]["par_annee"][str(annee)] = e
+    series: dict[str, list[list]] = {}
+    for c, jour, e, deps in jours:
+        series.setdefault(str(c), []).append([jour, e, deps])
+    return {"carburants": carburants, "series": series}
+
+
+def verifier_series(nom: str, series: dict[str, list[list]]) -> None:
+    """Lève ExportError si une série quotidienne saute un jour."""
+    for carburant_id, jours in series.items():
+        dates = [datetime.fromisoformat(j[0]) for j in jours]
+        trous = [d for d, suivant in zip(dates, dates[1:]) if (suivant - d).days != 1]
+        if trous:
+            raise ExportError(f"{nom}, {CARBURANTS[int(carburant_id)]} : série interrompue après {trous[0]:%Y-%m-%d}")
+
+
 def verifier_medianes(series: dict[str, list[list]]) -> None:
     """Lève ExportError si un carburant manque ou si une série a un jour manquant."""
     manquants = {str(k) for k in CARBURANTS} - set(series)
     if manquants:
         raise ExportError(f"prix médians absents pour les carburants {sorted(manquants)}")
-    for carburant_id, jours in series.items():
-        dates = [datetime.fromisoformat(j[0]) for j in jours]
-        trous = [d for d, suivant in zip(dates, dates[1:]) if (suivant - d).days != 1]
-        if trous:
-            raise ExportError(f"{CARBURANTS[int(carburant_id)]} : série interrompue après {trous[0]:%Y-%m-%d}")
+    verifier_series("prix médians", series)
     jours = next(iter(series.values()))
     log.info("Prix médians : %d jours, du %s au %s", len(jours), jours[0][0], jours[-1][0])
 
@@ -270,9 +323,15 @@ def main() -> int:
                 resume = lire_resume(con)
             with etape("Lecture des prix médians quotidiens"):
                 medianes = lire_medianes(con)
+            with etape("Lecture des écarts entre autoroute et route"):
+                ecarts = lire_ecarts_autoroute(con)
         with etape("Vérification de l'export"):
             verifier(stations, resume)
             verifier_medianes(medianes)
+            # Le SP95 peut n'avoir aucun département comparable certains jours : sa série n'est pas vérifiée.
+            verifier_series("écarts autoroute", {c: j for c, j in ecarts["series"].items() if c != "2"})
+            log.info("Écarts autoroute : %s", ", ".join(
+                f"{CARBURANTS[int(c)]} {v['ecart_median']:+.3f} €" for c, v in ecarts["carburants"].items()))
         with etape("Lecture du résumé de la dernière exécution dbt"):
             execution_dbt = lire_execution_dbt()
         with etape("Écriture des fichiers JSON"):
@@ -287,6 +346,11 @@ def main() -> int:
                 "jours_prix_en_vigueur": JOURS_PRIX_RECENT,
                 "colonnes": COLONNES_MEDIANE,
                 "carburants": medianes,
+            })
+            ecrire_json("surcout_autoroute.json", {
+                "reference_at": resume["reference_at"],
+                "colonnes": COLONNES_ECART,
+                **ecarts,
             })
             ecrire_json("metadata.json", {
                 "genere_le": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

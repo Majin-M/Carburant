@@ -14,10 +14,12 @@ Description des fichiers et des tables produits par le pipeline, de la source au
 | `raw` | `raw.stations` | vue DuckDB sur tous les Parquet | une balise `<pdv>` | 29 213 |
 | `staging` | `staging.stg_roulez_eco__prix` | vue dbt | une station, un carburant, un instant de relevé | 9 465 583 |
 | `staging` | `staging.stg_roulez_eco__stations` | vue dbt | une station, un fichier annuel | 29 213 |
+| `intermediate` | `intermediate.int_prix_en_vigueur` | vue dbt | une station, un carburant, un jour | |
 | `marts` | `marts.mart_changements_prix` | table dbt | une station, un carburant, un changement de prix | 5 222 646 |
 | `marts` | `marts.mart_stations` | table dbt | une station ayant publié au moins un prix | 10 112 |
 | `marts` | `marts.mart_prix_actuels` | table dbt | une station, un carburant | 37 039 |
 | `marts` | `marts.mart_prix_medians_quotidiens` | table dbt | un jour, un carburant | 3 768 |
+| `marts` | `marts.mart_ecarts_autoroute` | table dbt | un jour, un département, un carburant | 255 910 (au 12/11/2026) |
 
 ## ZIP archivés
 
@@ -226,13 +228,29 @@ Dernier prix connu de chaque station pour chaque carburant, avec son âge.
 - **66 prix suspects** (54 en E85, 12 en GPLc), soit 0,2 % : ils ne doivent pas être affichés comme les moins chers. Seuils : 1,50 € pour l'E85, 1,80 € pour le GPLc (variables `prix_max_plausible_e85` et `prix_max_plausible_gplc` de `dbt_project.yml`).
 - **Les ruptures de stock ne sont pas chargées** : un carburant en rupture garde son dernier prix.
 
+## `intermediate.int_prix_en_vigueur`
+
+Prix en vigueur de chaque station, pour chaque carburant et chaque jour. Vue partagée par `mart_prix_medians_quotidiens` et `mart_ecarts_autoroute`.
+
+- **Grain** : une station, un carburant, un jour.
+- **Source** : `stg_roulez_eco__prix`.
+- **Prix en vigueur** : le dernier relevé de la station à la fin du jour, en heure de Paris, s'il a au plus `jours_prix_en_vigueur` jours (variable de `dbt_project.yml`, 7 comme la règle d'affichage du portfolio). Chaque station compte une fois par jour, quel que soit son nombre de relevés.
+
+| Colonne | Type | Description | Exemple |
+|---|---|---|---|
+| `station_id` | INTEGER | Identifiant de la station | `1000001` |
+| `carburant_id`, `carburant` | INTEGER, VARCHAR | Carburant | `1`, `Gazole` |
+| `jour` | DATE | Jour où le prix est en vigueur, en heure de Paris | `2026-01-01` |
+| `prix_litre` | DECIMAL | Prix au litre, en euros | `1.571` |
+| `releve_le` | DATE | Jour du relevé qui fixe ce prix | `2025-12-31` |
+| `est_prix_suspect` | BOOLEAN | Prix d'E85 ou de GPLc au niveau de l'essence | `false` |
+
 ## `marts.mart_prix_medians_quotidiens`
 
 Prix médian de chaque carburant, jour par jour, sur les prix en vigueur.
 
 - **Grain** : un jour, un carburant.
-- **Source** : `stg_roulez_eco__prix`.
-- **Prix en vigueur** : le dernier relevé de chaque station à la fin du jour, en heure de Paris, s'il a au plus `jours_prix_en_vigueur` jours (variable de `dbt_project.yml`, 7 comme la règle d'affichage du portfolio). Chaque station compte une fois par jour, quel que soit son nombre de relevés. Les prix suspects sont écartés.
+- **Source** : `int_prix_en_vigueur`, prix suspects écartés.
 - **Début** : la série commence 7 jours après le premier relevé de l'historique, une fois la fenêtre complète (8 janvier 2025).
 
 | Colonne | Type | Description | Exemple |
@@ -247,6 +265,31 @@ Prix médian de chaque carburant, jour par jour, sur les prix en vigueur.
 
 - **Jours fériés** : moins de stations relèvent leurs prix (7 048 en gazole le 1er janvier 2026, contre 7 773 le 2 janvier) ; le prix médian reste calculé sur les prix en vigueur.
 - **Une station par jour** : vérifié par `assert_prix_medians_une_station_par_jour`.
+
+## `marts.mart_ecarts_autoroute`
+
+Écart de prix entre stations d'autoroute et de route, le même jour et dans le même département, pour chaque carburant.
+
+- **Grain** : un jour, un département, un carburant.
+- **Sources** : `int_prix_en_vigueur` (prix suspects écartés) et `mart_stations` (`est_autoroute`, code postal).
+- **Pourquoi à département égal** : les autoroutes traversent surtout des départements où les prix sont déjà élevés. Comparer les médianes nationales surestime le surcoût de 3 centimes pour le gazole et de 5 centimes pour l'E85.
+- **Filtre** : seuls les jours et départements qui ont au moins une station de chaque type sont gardés. La série commence comme celle des prix médians.
+
+| Colonne | Type | Description | Exemple |
+|---|---|---|---|
+| `jour` | DATE | Jour, en heure de Paris | `2026-01-01` |
+| `departement` | VARCHAR | Deux premiers caractères du code postal, `20` pour toute la Corse | `69` |
+| `carburant_id`, `carburant` | INTEGER, VARCHAR | Carburant | `1`, `Gazole` |
+| `prix_median_autoroute` | DECIMAL | Prix médian en vigueur des stations d'autoroute | `1.824` |
+| `prix_median_route` | DECIMAL | Prix médian en vigueur des stations de route | `1.586` |
+| `nombre_stations_autoroute`, `nombre_stations_route` | BIGINT | Stations comparées de chaque type | `13`, `137` |
+| `ecart` | DECIMAL | `prix_median_autoroute - prix_median_route` | `0.238` |
+
+**À savoir**
+
+- **SP95** : 6 stations d'autoroute le vendent encore, comparables dans 36 départements au plus. Le portfolio ne l'affiche pas.
+- **Départements à une station d'autoroute** : leur écart repose sur une seule station.
+- **Type de station** : le département sépare la géographie, pas l'enseigne. Le prix de route mélange hypermarchés et stations indépendantes.
 
 ## Fichiers exportés
 
@@ -293,6 +336,30 @@ Les prix médians de `mart_prix_medians_quotidiens`, une série par carburant, p
   "carburants": {"1": [["2025-01-08", 1.669, 8160], ["2025-01-09", 1.669, 8346], ...], ...}
 }
 ```
+
+### `surcout_autoroute.json`
+
+L'écart de `mart_ecarts_autoroute`, résumé pour le portfolio. L'export échoue si une série saute un jour (sauf le SP95, qui peut n'avoir aucun département comparable).
+
+```json
+{
+  "reference_at": "2026-11-12T22:59:00Z",
+  "colonnes": ["jour", "ecart_median", "departements"],
+  "carburants": {"1": {"ecart_median": 0.15, "ecart_q1": 0.082, "ecart_q3": 0.223, "ecart_median_part": 0.085,
+                       "part_cas_autoroute_plus_chere": 0.9234, "cas": 53028, "departements": 81,
+                       "par_annee": {"2025": 0.191, "2026": 0.103}}, ...},
+  "series": {"1": [["2025-01-08", 0.187, 78], ...], ...}
+}
+```
+
+| Valeur | Description |
+|---|---|
+| `ecart_median`, `ecart_q1`, `ecart_q3` | Médiane et quartiles de `ecart` sur tous les jours et départements, en euros |
+| `ecart_median_part` | Médiane de `ecart / prix_median_route` |
+| `part_cas_autoroute_plus_chere` | Part des couples jour × département où l'autoroute est plus chère |
+| `cas`, `departements` | Couples jour × département comparés, départements distincts |
+| `par_annee` | Écart médian de chaque année |
+| `series` | Chaque jour : médiane des écarts des départements comparés, et leur nombre |
 
 ### `metadata.json`
 

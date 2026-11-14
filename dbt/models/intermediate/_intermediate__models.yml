@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: int_prix_en_vigueur
+    description: >
+      Prix en vigueur de chaque station, pour chaque carburant et chaque jour :
+      dernier relevé à la fin du jour (heure de Paris), vieux d'au plus
+      jours_prix_en_vigueur jours. Une ligne par station, carburant et jour.
+      Vue partagée par mart_prix_medians_quotidiens et mart_ecarts_autoroute.
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+      - name: carburant_id
+        data_tests:
+          - not_null
+      - name: jour
+        description: Jour où le prix est en vigueur, en heure de Paris.
+        data_tests:
+          - not_null
+      - name: prix_litre
+        data_tests:
+          - not_null
+      - name: releve_le
+        description: Jour du relevé qui fixe ce prix.
+      - name: est_prix_suspect
+        description: Vrai pour un prix d'E85 ou de GPLc au niveau de l'essence.

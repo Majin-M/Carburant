@@ -124,7 +124,7 @@ SCENARIOS = [
               ("{{ reparer_double_encodage('trim(adresse)') }}", "trim(adresse)")}},
     {"test": "assert_prix_medians_une_station_par_jour",
      "defaut": "période d'un prix prolongée jusqu'au jour du relevé suivant : la station compte deux fois",
-     "code": {"models/marts/mart_prix_medians_quotidiens.sql":
+     "code": {"models/intermediate/int_prix_en_vigueur.sql":
               ("order by jour) - 1,", "order by jour),")}},
     {"test": "assert_prix_suspects_rares",
      "defaut": "tous les prix d'E85 passés à 1,99 € (niveau de l'essence)",

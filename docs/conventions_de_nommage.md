@@ -24,6 +24,7 @@ Règles de nommage des fichiers, schémas, tables, colonnes et scripts du projet
 |---|---|---|
 | `raw` | Données source telles quelles | `ingest.py` (vue sur les Parquet) |
 | `staging` | Données nettoyées et typées, un modèle par source | dbt |
+| `intermediate` | Calculs partagés par plusieurs marts, en vues | dbt |
 | `marts` | Tables prêtes pour l'analyse et l'export | dbt |
 
 ## Tables
@@ -41,10 +42,15 @@ Règles de nommage des fichiers, schémas, tables, colonnes et scripts du projet
 - C'est ici que les colonnes sont renommées et typées. Par exemple, `pdv_id` (texte) devient `station_id` (entier), et `maj` (texte, heure de Paris) devient `maj_at` (horodatage avec fuseau).
 - Exemples : `staging.stg_roulez_eco__prix`, `staging.stg_roulez_eco__stations`.
 
+### `intermediate`
+
+- **`int_<sujet>`**, matérialisé en vue : un calcul que plusieurs marts utilisent, écrit une seule fois.
+- Exemple : `intermediate.int_prix_en_vigueur`, lu par `mart_prix_medians_quotidiens` et `mart_ecarts_autoroute`.
+
 ### `marts`
 
 - **`mart_<sujet>`** : un nom qui dit à quelle question la table répond.
-- Exemples : `marts.mart_changements_prix`, `marts.mart_prix_actuels`, `marts.mart_stations`.
+- Exemples : `marts.mart_changements_prix`, `marts.mart_prix_actuels`, `marts.mart_stations`, `marts.mart_ecarts_autoroute`.
 
 ## Colonnes
 

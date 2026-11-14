@@ -4,7 +4,7 @@
 
 Chaque matin, ce pipeline récupère les prix de toutes les stations de France, publiés par l'État en XML (donnees.roulez-eco.fr, Licence Ouverte), garde l'historique complet des changements de prix et publie les prix du jour. Le portfolio s'en sert pour trouver la station la moins chère autour de soi : [voir la page du projet](https://portfolio-data-lovat.vercel.app/projets/prix-carburants/).
 
-**Stack** : Python (ingestion), Parquet et DuckDB (stockage), dbt (transformations et 60 tests), GitHub Actions (exécution quotidienne), GitHub Pages (publication).
+**Stack** : Python (ingestion), Parquet et DuckDB (stockage), dbt (transformations et 72 tests), GitHub Actions (exécution quotidienne), GitHub Pages (publication).
 
 ## Architecture
 
@@ -19,8 +19,9 @@ Chaque matin, ce pipeline récupère les prix de toutes les stations de France, 
 | archive | ZIP d'origine : le dernier de chaque semaine, sans doublon de contenu | `data/archive/PrixCarburants_annuel_AAAA_telecharge_AAAAMMJJ.zip`, releases GitHub `archive-AAAA` (`publier_archive.py`) |
 | `raw` | Copie fidèle du XML, en texte, avec l'année, le nom et l'empreinte du ZIP source | vues `raw.prix` et `raw.stations` sur un Parquet par année (`ingest.py`) |
 | `staging` | Typage et nettoyage, sans logique métier | `stg_roulez_eco__prix`, `stg_roulez_eco__stations` (vues dbt) |
-| `marts` | Changements de prix, stations, prix actuels, prix médians jour par jour | `mart_changements_prix`, `mart_stations`, `mart_prix_actuels`, `mart_prix_medians_quotidiens` (tables dbt) |
-| export | Fichiers JSON pour le portfolio | `exports/prix_actuels.json`, `exports/prix_medians.json`, `exports/metadata.json` (`export.py`) |
+| `intermediate` | Calculs partagés par plusieurs marts | `int_prix_en_vigueur` (vue dbt) |
+| `marts` | Changements de prix, stations, prix actuels, prix médians jour par jour, surcoût autoroute | `mart_changements_prix`, `mart_stations`, `mart_prix_actuels`, `mart_prix_medians_quotidiens`, `mart_ecarts_autoroute` (tables dbt) |
+| export | Fichiers JSON pour le portfolio | `exports/prix_actuels.json`, `exports/prix_medians.json`, `exports/surcout_autoroute.json`, `exports/metadata.json` (`export.py`) |
 
 Chaque colonne est décrite dans le [catalogue de données](docs/catalogue_de_donnees.md), les règles de nommage dans les [conventions de nommage](docs/conventions_de_nommage.md). Les sources des deux schémas sont dans `docs/` (draw.io).
 
@@ -75,6 +76,8 @@ Le script met ensuite à jour les vues `raw.prix` et `raw.stations` de DuckDB, p
 | **Staging en vue, marts en tables, profil dbt versionné** | Le staging ne fait que typer et nettoyer : une vue suffit. Les marts reposent sur des fonctions de fenêtre sur 9,5 millions de relevés : ils sont matérialisés pour ne pas être recalculés à chaque lecture. Le profil (`dbt/profiles.yml`) ne contient aucun secret, seulement le chemin de la base et le fuseau de session : il est versionné pour que `dbt build` marche dès le clonage. |
 | **Stations : version la plus récente parmi les années avec prix** | Une station listée sans prix peut avoir des coordonnées fausses (`0`, latitude et longitude inversées). Seules les versions accompagnées de prix sont retenues, et les stations sans aucun prix sont écartées. |
 | **Prix médians : prix en vigueur, une station par jour** | La médiane des relevés d'un jour surpondère les stations qui relèvent plusieurs fois par jour, et oublie celles qui n'ont rien relevé ce jour-là. Le mart prend pour chaque station son dernier relevé à la fin du jour, s'il a 7 jours ou moins (la règle d'affichage du portfolio), et écarte les prix suspects. Pour le gazole, la médiane des relevés du 1er au 27 septembre 2026 donnait 2,289 € ; celle des prix en vigueur, 2,390 € le 27 septembre. |
+| **Surcoût autoroute mesuré à date et département égaux** | Comparer les médianes nationales mélange l'autoroute et la région traversée : les autoroutes passent surtout par des départements déjà chers. Comparé chaque jour dans chaque département, l'écart du gazole est de 0,150 € au lieu de 0,184 € (données au 12 novembre 2026). |
+| **Prix en vigueur calculés une fois, dans une vue intermédiaire** | Les prix médians et le surcoût autoroute reposent sur la même règle. `int_prix_en_vigueur` l'écrit une seule fois ; en vue, elle ne stocke pas ses 18 millions de lignes (au 12 novembre 2026). |
 | **Prix actuels : tous les derniers prix gardés, avec leur âge** | 29 % des derniers prix ont plus de 7 jours. Les supprimer masquerait des stations ; les garder avec `nombre_jours_depuis_maj` laisse le portfolio les griser. |
 | **Âge compté depuis le dernier relevé des données** | Et non depuis l'heure d'exécution : relancer dbt sur les mêmes données donne exactement le même résultat. |
 | **Âge compté en jours calendaires à l'heure de Paris, quel que soit le fuseau de la machine** | Trouvé à la relecture : sur un horodatage avec fuseau, `date_diff('day', …)` compte les changements de jour dans le fuseau de la session DuckDB. Sur une machine en UTC, comme un runner GitHub Actions, 5 642 prix actuels auraient changé d'âge. Le calcul convertit désormais explicitement en heure de Paris, et le profil dbt fixe en plus le fuseau de session (`TimeZone: Europe/Paris`). Le résultat a été vérifié identique dans quatre fuseaux. |
@@ -104,7 +107,7 @@ QUALIFY prix_litre IS DISTINCT FROM lag(prix_litre) OVER (
 
 ## Qualité des données
 
-60 tests dbt, lancés à chaque `dbt build` : 40 tests génériques (`not_null`, `unique`, `accepted_values`, `relationships`), 19 tests singuliers bloquants et 1 avertissement.
+72 tests dbt, lancés à chaque `dbt build` : 52 tests génériques (`not_null`, `unique`, `accepted_values`, `relationships`), 19 tests singuliers bloquants et 1 avertissement.
 
 Chaque test singulier a été vu en échec : [verifier_tests_en_echec.py](verifier_tests_en_echec.py) injecte le défaut de la dernière colonne, dans les données d'un échantillon ou dans une copie du code dbt, et vérifie que le test le détecte. Il tourne à chaque push.
 

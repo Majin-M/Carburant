@@ -135,3 +135,37 @@ models:
         description: Nombre de stations qui ont un prix en vigueur ce jour-là, chacune comptée une fois.
         data_tests:
           - not_null
+
+  - name: mart_ecarts_autoroute
+    description: >
+      Écart de prix entre stations d'autoroute et de route, le même jour et dans
+      le même département, pour chaque carburant : prix médians en vigueur des
+      deux types de stations, prix suspects écartés. Seuls les jours et
+      départements qui ont au moins une station de chaque type sont gardés.
+    columns:
+      - name: jour
+        data_tests:
+          - not_null
+      - name: departement
+        description: Deux premiers caractères du code postal (20 pour toute la Corse).
+        data_tests:
+          - not_null
+      - name: carburant_id
+        data_tests:
+          - not_null
+      - name: prix_median_autoroute
+        data_tests:
+          - not_null
+      - name: prix_median_route
+        data_tests:
+          - not_null
+      - name: nombre_stations_autoroute
+        data_tests:
+          - not_null
+      - name: nombre_stations_route
+        data_tests:
+          - not_null
+      - name: ecart
+        description: prix_median_autoroute - prix_median_route, en euros par litre.
+        data_tests:
+          - not_null
