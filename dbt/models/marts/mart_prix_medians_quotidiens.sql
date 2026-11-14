@@ -9,7 +9,7 @@
 
 with prix_en_vigueur as (
 
-    select *
+    select jour, carburant_id, carburant, prix_litre
     from {{ ref('int_prix_en_vigueur') }}
     where not est_prix_suspect
 
